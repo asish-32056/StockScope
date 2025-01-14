@@ -67,10 +67,10 @@ public class AuthService {
         logger.debug("Attempting signup for user: {}", request.getEmail());
 
         // Validate email format and uniqueness
-        validateEmail(request.getEmail());
+        //validateEmail(request.getEmail());
 
         // Validate password
-        validatePassword(request.getPassword());
+        //validatePassword(request.getPassword());
 
         // Create new user
         User user = new User();
