@@ -1,5 +1,6 @@
 package com.example.stockscope.exception;
 
+import com.example.stockscope.dto.ErrorResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -20,28 +21,38 @@ import java.util.Map;
 public class GlobalExceptionHandler {
     private static final Logger logger = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
-    @ExceptionHandler(AuthenticationException.class)
-    public ResponseEntity<Map<String, Object>> handleAuthenticationException(AuthenticationException ex) {
-        Map<String, Object> response = createErrorResponse(
-                HttpStatus.UNAUTHORIZED.value(),
-                "Authentication Failed",
-                ex.getMessage()
-        );
-        return new ResponseEntity<>(response, HttpStatus.UNAUTHORIZED);
+    @ExceptionHandler(ResourceNotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ResponseEntity<ErrorResponse> handleResourceNotFoundException(ResourceNotFoundException ex) {
+        logger.error("Resource not found: {}", ex.getMessage());
+        return createErrorResponse(HttpStatus.NOT_FOUND, "Not Found", ex.getMessage());
     }
 
-    @ExceptionHandler(ValidationException.class)
-    public ResponseEntity<Map<String, Object>> handleValidationException(ValidationException ex) {
-        Map<String, Object> response = createErrorResponse(
-                HttpStatus.BAD_REQUEST.value(),
-                "Validation Error",
-                ex.getMessage()
-        );
-        return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
+    @ExceptionHandler(AdminOperationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ResponseEntity<ErrorResponse> handleAdminOperationException(AdminOperationException ex) {
+        logger.error("Admin operation failed: {}", ex.getMessage());
+        return createErrorResponse(HttpStatus.BAD_REQUEST, "Operation Failed", ex.getMessage());
+    }
+
+    @ExceptionHandler(AccessDeniedException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public ResponseEntity<ErrorResponse> handleAccessDeniedException(AccessDeniedException ex) {
+        logger.error("Access denied: {}", ex.getMessage());
+        return createErrorResponse(HttpStatus.FORBIDDEN, "Access Denied",
+                "You don't have permission to perform this operation");
+    }
+
+    @ExceptionHandler(BadCredentialsException.class)
+    @ResponseStatus(HttpStatus.UNAUTHORIZED)
+    public ResponseEntity<ErrorResponse> handleBadCredentialsException(BadCredentialsException ex) {
+        logger.error("Authentication failed: {}", ex.getMessage());
+        return createErrorResponse(HttpStatus.UNAUTHORIZED, "Authentication Failed", "Invalid credentials");
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<Map<String, Object>> handleValidationErrors(MethodArgumentNotValidException ex) {
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ResponseEntity<ErrorResponse> handleValidationExceptions(MethodArgumentNotValidException ex) {
         Map<String, String> errors = new HashMap<>();
         ex.getBindingResult().getAllErrors().forEach(error -> {
             String fieldName = ((FieldError) error).getField();
@@ -49,52 +60,28 @@ public class GlobalExceptionHandler {
             errors.put(fieldName, errorMessage);
         });
 
-        Map<String, Object> response = createErrorResponse(
+        ErrorResponse response = new ErrorResponse(
                 HttpStatus.BAD_REQUEST.value(),
                 "Validation Error",
-                "Invalid input parameters"
-        );
-        response.put("errors", errors);
-        return new ResponseEntity<>(response, HttpStatus.BAD_REQUEST);
-    }
+                "Invalid input provided");
+        response.setValidationErrors(errors);
 
-    @ExceptionHandler(AccessDeniedException.class)
-    public ResponseEntity<Map<String, Object>> handleAccessDeniedException(AccessDeniedException ex) {
-        Map<String, Object> response = createErrorResponse(
-                HttpStatus.FORBIDDEN.value(),
-                "Access Denied",
-                "You don't have permission to access this resource"
-        );
-        return new ResponseEntity<>(response, HttpStatus.FORBIDDEN);
-    }
-
-    @ExceptionHandler(BadCredentialsException.class)
-    public ResponseEntity<Map<String, Object>> handleBadCredentialsException(BadCredentialsException ex) {
-        Map<String, Object> response = createErrorResponse(
-                HttpStatus.UNAUTHORIZED.value(),
-                "Authentication Failed",
-                "Invalid credentials"
-        );
-        return new ResponseEntity<>(response, HttpStatus.UNAUTHORIZED);
+        return ResponseEntity.badRequest().body(response);
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<Map<String, Object>> handleAllUncaughtException(Exception ex) {
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public ResponseEntity<ErrorResponse> handleAllUncaughtException(Exception ex) {
         logger.error("Unexpected error occurred: ", ex);
-        Map<String, Object> response = createErrorResponse(
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
+        return createErrorResponse(
+                HttpStatus.INTERNAL_SERVER_ERROR,
                 "Internal Server Error",
-                "An unexpected error occurred"
-        );
-        return new ResponseEntity<>(response, HttpStatus.INTERNAL_SERVER_ERROR);
+                "An unexpected error occurred");
     }
 
-    private Map<String, Object> createErrorResponse(int status, String error, String message) {
-        Map<String, Object> response = new HashMap<>();
-        response.put("timestamp", LocalDateTime.now());
-        response.put("status", status);
-        response.put("error", error);
-        response.put("message", message);
-        return response;
+    private ResponseEntity<ErrorResponse> createErrorResponse(
+            HttpStatus status, String error, String message) {
+        ErrorResponse response = new ErrorResponse(status.value(), error, message);
+        return new ResponseEntity<>(response, status);
     }
 }
