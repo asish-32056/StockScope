@@ -3,12 +3,14 @@ package com.example.stockscope.service;
 import com.example.stockscope.dto.AuthResponse;
 import com.example.stockscope.dto.LoginRequest;
 import com.example.stockscope.dto.SignupRequest;
+import com.example.stockscope.model.ActivityLog;
 import com.example.stockscope.model.Role;
 import com.example.stockscope.model.User;
 import com.example.stockscope.repository.UserRepository;
 import com.example.stockscope.security.JwtTokenProvider;
 import com.example.stockscope.exception.AuthenticationException;
 import com.example.stockscope.exception.ValidationException;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -16,73 +18,72 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.UUID;
-import java.util.regex.Pattern;
 
 @Service
+@Transactional
 public class AuthService {
     private static final Logger logger = LoggerFactory.getLogger(AuthService.class);
 
-    @Autowired
-    private UserRepository userRepository;
+    private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final JwtTokenProvider jwtTokenProvider;
+    private final ActivityLogService activityLogService;
+    private final HttpServletRequest request;
 
     @Autowired
-    private PasswordEncoder passwordEncoder;
+    public AuthService(
+            UserRepository userRepository,
+            PasswordEncoder passwordEncoder,
+            JwtTokenProvider jwtTokenProvider,
+            ActivityLogService activityLogService,
+            HttpServletRequest request) {
+        this.userRepository = userRepository;
+        this.passwordEncoder = passwordEncoder;
+        this.jwtTokenProvider = jwtTokenProvider;
+        this.activityLogService = activityLogService;
+        this.request = request;
+    }
 
-    @Autowired
-    private JwtTokenProvider jwtTokenProvider;
-
-    // Password validation pattern
-    private static final String PASSWORD_PATTERN =
-            "^(?=.*[A-Z])(?=.*[@#$%^&+=!])(?=\\S+$).{8,}$";
-    private static final Pattern pattern = Pattern.compile(PASSWORD_PATTERN);
-
-    // Email validation pattern
-    private static final String EMAIL_PATTERN =
-            "^[A-Za-z0-9+_.-]+@(.+)$";
-    private static final Pattern emailPattern = Pattern.compile(EMAIL_PATTERN);
-
-    @Transactional
-    public AuthResponse login(LoginRequest request) {
-        logger.debug("Attempting login for user: {}", request.getEmail());
-
-        // Find user by email
-        User user = userRepository.findByEmail(request.getEmail().toLowerCase())
+    public AuthResponse login(LoginRequest loginRequest) {
+        User user = userRepository.findByEmail(loginRequest.getEmail().toLowerCase())
                 .orElseThrow(() -> new AuthenticationException("Invalid email or password"));
 
-        // Validate password
-        if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
+        if (!passwordEncoder.matches(loginRequest.getPassword(), user.getPassword())) {
+            logFailedLoginAttempt(user.getId());
             throw new AuthenticationException("Invalid email or password");
         }
 
-        // Generate JWT token
+        if (!user.isEnabled()) {
+            throw new AuthenticationException("Account is disabled");
+        }
+
+        user.setLastLoginAt(LocalDateTime.now());
+        user = userRepository.save(user);
+
+        logSuccessfulLogin(user.getId());
         String token = jwtTokenProvider.generateToken(user);
-        logger.info("User logged in successfully: {}", user.getEmail());
 
         return new AuthResponse(token, user);
     }
 
-    @Transactional
-    public AuthResponse signup(SignupRequest request) {
-        logger.debug("Attempting signup for user: {}", request.getEmail());
+    public AuthResponse signup(SignupRequest signupRequest) {
+        validateSignupRequest(signupRequest);
 
-        // Validate email format and uniqueness
-        validateEmail(request.getEmail());
-
-        // Validate password
-        validatePassword(request.getPassword());
-
-        // Create new user
         User user = new User();
         user.setId(UUID.randomUUID().toString());
-        user.setName(request.getName().trim());
-        user.setEmail(request.getEmail().toLowerCase());
-        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setName(signupRequest.getName().trim());
+        user.setEmail(signupRequest.getEmail().toLowerCase());
+        user.setPassword(passwordEncoder.encode(signupRequest.getPassword()));
         user.setRole(Role.USER);
+        user.setEnabled(true);
+        user.setEmailVerified(false);
+        user.setCreatedAt(LocalDateTime.now());
 
         try {
             user = userRepository.save(user);
-            logger.info("New user created successfully: {}", user.getEmail());
+            logAccountCreation(user.getId());
         } catch (Exception e) {
             logger.error("Error creating user account", e);
             throw new ValidationException("Error creating user account");
@@ -92,27 +93,59 @@ public class AuthService {
         return new AuthResponse(token, user);
     }
 
-    @Transactional
     public void logout(String token) {
-        // You could implement token blacklisting here if needed
-        logger.info("User logged out successfully");
+        if (token != null && jwtTokenProvider.validateToken(token)) {
+            String userId = jwtTokenProvider.getUserIdFromToken(token);
+            logLogout(userId);
+        }
     }
 
-    private void validateEmail(String email) {
-        if (email == null || !emailPattern.matcher(email).matches()) {
-            throw new ValidationException("Invalid email format");
-        }
-        if (userRepository.existsByEmail(email.toLowerCase())) {
+    private void validateSignupRequest(SignupRequest request) {
+        if (userRepository.existsByEmail(request.getEmail().toLowerCase())) {
             throw new ValidationException("Email already registered");
         }
+        // Add additional validations as needed
     }
 
-    private void validatePassword(String password) {
-        if (password == null || !pattern.matcher(password).matches()) {
-            throw new ValidationException(
-                    "Password must contain at least 8 characters, " +
-                            "one uppercase letter, and one special character (@#$%^&+=!)"
-            );
-        }
+    private void logSuccessfulLogin(String userId) {
+        activityLogService.logActivity(
+                userId,
+                ActivityLog.ActivityType.LOGIN,
+                "Successful login",
+                getClientInfo()
+        );
+    }
+
+    private void logFailedLoginAttempt(String userId) {
+        activityLogService.logActivity(
+                userId,
+                ActivityLog.ActivityType.LOGIN,
+                "Failed login attempt",
+                getClientInfo()
+        );
+    }
+
+    private void logLogout(String userId) {
+        activityLogService.logActivity(
+                userId,
+                ActivityLog.ActivityType.LOGOUT,
+                "User logged out",
+                getClientInfo()
+        );
+    }
+
+    private void logAccountCreation(String userId) {
+        activityLogService.logActivity(
+                userId,
+                ActivityLog.ActivityType.ACCOUNT_CREATION,
+                "New account created",
+                getClientInfo()
+        );
+    }
+
+    private String getClientInfo() {
+        String userAgent = request.getHeader("User-Agent");
+        String ipAddress = request.getRemoteAddr();
+        return String.format("IP: %s, User-Agent: %s", ipAddress, userAgent);
     }
 }
