@@ -10,13 +10,11 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
-                .allowedOrigins(
-                        "https://stock-scope-frontend-f6gif0wvm-asishs-projects-a921eaa3.vercel.app",
-                        "https://stock-scope-frontend.vercel.app")
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
-                .allowedHeaders("*")
-                .allowCredentials(true)
-                .maxAge(3600);
+            .allowedOrigins("https://stock-scope-frontend-f6gif0wvm-asishs-projects-a921eaa3.vercel.app")
+            .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH")
+            .allowedHeaders("*")
+            .allowCredentials(true)
+            .maxAge(3600);
     }
 
     @Override
