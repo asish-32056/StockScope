@@ -23,4 +23,22 @@ public class ErrorResponse {
         this.error = error;
         this.message = message;
     }
+
+    // Getters
+    public String getMessage() {
+        return message;
+    }
+
+    public Map<String, String> getValidationErrors() {
+        return validationErrors;
+    }
+
+    // Setters
+    public void setMessage(String message) {
+        this.message = message;
+    }
+
+    public void setValidationErrors(Map<String, String> validationErrors) {
+        this.validationErrors = validationErrors;
+    }
 }
