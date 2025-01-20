@@ -76,4 +76,9 @@ public class SecurityConfig {
         source.registerCorsConfiguration("/**", configuration);
         return source;
     }
+
+    @Bean
+    public RateLimitInterceptor rateLimitInterceptor() {
+        return new RateLimitInterceptor(10.0); // 10 requests per second
+    }
 }
