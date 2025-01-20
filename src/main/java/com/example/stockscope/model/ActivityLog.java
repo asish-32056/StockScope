@@ -63,8 +63,8 @@ public class ActivityLog {
         return userId;
     }
 
-    public ActivityType getActivityType() {
-        return activityType;
+    public String getAction() {
+        return action;
     }
 
     public String getDescription() {
@@ -73,6 +73,18 @@ public class ActivityLog {
 
     public LocalDateTime getTimestamp() {
         return timestamp;
+    }
+
+    public String getIpAddress() {
+        return ipAddress;
+    }
+
+    public String getUserAgent() {
+        return userAgent;
+    }
+
+    public ActivityType getActivityType() {
+        return activityType;
     }
 
     // Setters
@@ -84,8 +96,8 @@ public class ActivityLog {
         this.userId = userId;
     }
 
-    public void setActivityType(ActivityType activityType) {
-        this.activityType = activityType;
+    public void setAction(String action) {
+        this.action = action;
     }
 
     public void setDescription(String description) {
@@ -94,5 +106,17 @@ public class ActivityLog {
 
     public void setTimestamp(LocalDateTime timestamp) {
         this.timestamp = timestamp;
+    }
+
+    public void setIpAddress(String ipAddress) {
+        this.ipAddress = ipAddress;
+    }
+
+    public void setUserAgent(String userAgent) {
+        this.userAgent = userAgent;
+    }
+
+    public void setActivityType(ActivityType activityType) {
+        this.activityType = activityType;
     }
 }
