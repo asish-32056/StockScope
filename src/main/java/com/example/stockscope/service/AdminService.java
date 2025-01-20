@@ -32,4 +32,8 @@ public interface AdminService {
     void resetUserPassword(String userId, String newPassword);
 
     AdminDashboardStats.SystemStats getSystemHealth();
+
+    List<User> getAllUsers();
+
+    User updateUser(String userId, User updatedUser);
 }

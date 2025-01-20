@@ -48,5 +48,6 @@ public class AdminDashboardStats {
         private long activeStockWatchers;
         private long totalTransactions;
         private double totalPortfolioValue;
+        private String userGrowth;
     }
 }

@@ -13,6 +13,8 @@ import com.example.stockscope.service.AdminAuditService;
 import com.example.stockscope.service.AdminMetricsService;
 import com.example.stockscope.service.AdminService;
 import com.example.stockscope.util.AdminValidationUtil;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -24,10 +26,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Service
 @Transactional
 public class AdminServiceImpl implements AdminService {
+    private static final Logger logger = LoggerFactory.getLogger(AdminServiceImpl.class);
 
     private final UserRepository userRepository;
     private final ActivityLogRepository activityLogRepository;
@@ -51,37 +55,34 @@ public class AdminServiceImpl implements AdminService {
     @Override
     public AdminDashboardStats getDashboardStats() {
         AdminDashboardStats stats = new AdminDashboardStats();
+        LocalDateTime lastMonth = LocalDateTime.now().minusMonths(1);
 
-        // User Stats
+        // User Statistics
         AdminDashboardStats.UserStats userStats = new AdminDashboardStats.UserStats();
         userStats.setTotalUsers(userRepository.count());
-        userStats.setActiveUsers(userRepository.countByEnabled(true));
-        userStats.setNewUsersToday(userRepository.countByCreatedAtAfter(LocalDateTime.now().minusDays(1)));
-        userStats.setTotalAdmins(userRepository.countByRole(Role.ADMIN));
+        userStats.setActiveUsers(userRepository.countByRole(Role.USER));
+        userStats.setNewUsers(userRepository.countUsersCreatedBetween(lastMonth, LocalDateTime.now()));
         stats.setUserStats(userStats);
 
-        // System Stats
-        Map<String, Object> metrics = adminMetricsService.getSystemMetrics();
-        AdminDashboardStats.SystemStats systemStats = new AdminDashboardStats.SystemStats();
-        systemStats.setServerStatus(adminMetricsService.isSystemHealthy() ? "HEALTHY" : "DEGRADED");
-        systemStats.setSystemLoad((double) metrics.get("systemLoad"));
-        systemStats.setMemoryUsage((long) metrics.get("usedMemory"));
-        systemStats.setTotalRequests(activityLogRepository.count());
-        systemStats.setActiveUserSessions(getActiveUserSessions());
-        stats.setSystemStats(systemStats);
+        // System Statistics
+        stats.setSystemStats(adminMetricsService.getSystemStats());
+
+        // Recent Activities
+        List<ActivityLog> recentLogs = activityLogRepository.findTop10ByOrderByTimestampDesc();
+        stats.setRecentActivities(recentLogs.stream()
+                .map(this::mapActivityLogToRecentActivity)
+                .collect(Collectors.toList()));
 
         return stats;
     }
 
     @Override
     public Page<UserManagementDTO> getUsers(Pageable pageable, String search) {
-        Page<User> users;
-        if (search != null && !search.trim().isEmpty()) {
-            users = userRepository.findByNameContainingOrEmailContaining(search, search, pageable);
-        } else {
-            users = userRepository.findAll(pageable);
-        }
-        return users.map(this::convertToUserManagementDTO);
+        Page<User> users = search != null && !search.trim().isEmpty()
+                ? userRepository.findByRoleAndSearch(Role.USER, search, pageable)
+                : userRepository.findAll(pageable);
+
+        return users.map(this::mapUserToDTO);
     }
 
     @Override
@@ -113,50 +114,34 @@ public class AdminServiceImpl implements AdminService {
 
     @Override
     public void deleteUser(String userId) {
-        User currentAdmin = getCurrentAdmin();
-        User targetUser = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+        if (!userRepository.existsById(userId)) {
+            throw new ResourceNotFoundException("User not found with id: " + userId);
+        }
 
-        AdminValidationUtil.validateAdminOperation(targetUser, currentAdmin);
+        // Log the admin action before deletion
+        logActivity(
+                getCurrentAdmin().getId(),
+                "DELETE_USER",
+                "Deleted user: " + userId);
 
         userRepository.deleteById(userId);
-
-        adminAuditService.logAdminAction(
-                currentAdmin.getId(),
-                userId,
-                "DELETE_USER",
-                "User account deleted");
     }
 
     @Override
     public void resetUserPassword(String userId, String newPassword) {
-        User currentAdmin = getCurrentAdmin();
-        User targetUser = userRepository.findById(userId)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found with id: " + userId));
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
 
-        AdminValidationUtil.validateAdminOperation(targetUser, currentAdmin);
-        AdminValidationUtil.validatePasswordStrength(newPassword);
+        AdminValidationUtil.validateUserStatus(user);
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
 
-        targetUser.setPassword(passwordEncoder.encode(newPassword));
-        userRepository.save(targetUser);
-
-        adminAuditService.logAdminAction(
-                currentAdmin.getId(),
-                userId,
-                "RESET_PASSWORD",
-                "Password reset by admin");
+        adminAuditService.logPasswordReset(userId);
     }
 
     @Override
     public AdminDashboardStats.SystemStats getSystemHealth() {
-        Map<String, Object> metrics = adminMetricsService.getSystemMetrics();
-        AdminDashboardStats.SystemStats stats = new AdminDashboardStats.SystemStats();
-        stats.setServerStatus(adminMetricsService.isSystemHealthy() ? "HEALTHY" : "DEGRADED");
-        stats.setSystemLoad((double) metrics.get("systemLoad"));
-        stats.setMemoryUsage((long) metrics.get("usedMemory"));
-        stats.setTotalRequests(activityLogRepository.count());
-        stats.setActiveUserSessions(getActiveUserSessions());
-        return stats;
+        return adminMetricsService.getSystemStats();
     }
 
     @Override
@@ -190,6 +175,27 @@ public class AdminServiceImpl implements AdminService {
         activityLogRepository.save(log);
     }
 
+    @Override
+    public List<User> getAllUsers() {
+        return userRepository.findAll();
+    }
+
+    @Override
+    public User updateUser(String userId, User updatedUser) {
+        User existingUser = userRepository.findById(userId)
+                .orElseThrow(() -> new ResourceNotFoundException("User", "id", userId));
+
+        AdminValidationUtil.validateAdminOperation(existingUser, updatedUser);
+
+        existingUser.setName(updatedUser.getName());
+        existingUser.setEmail(updatedUser.getEmail());
+        existingUser.setEnabled(updatedUser.isEnabled());
+        existingUser.setEmailVerified(updatedUser.isEmailVerified());
+
+        adminAuditService.logUserUpdate(userId, existingUser);
+        return userRepository.save(existingUser);
+    }
+
     private User getCurrentAdmin() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
         return userRepository.findByEmail(email)
@@ -213,5 +219,28 @@ public class AdminServiceImpl implements AdminService {
     private int getActiveUserSessions() {
         // Count users who logged in within the last hour
         return (int) userRepository.countByRole(Role.USER);
+    }
+
+    private AdminDashboardStats.RecentActivity mapActivityLogToRecentActivity(ActivityLog log) {
+        AdminDashboardStats.RecentActivity activity = new AdminDashboardStats.RecentActivity();
+        activity.setUserId(log.getUserId());
+        activity.setAction(log.getActivityType().toString());
+        activity.setDescription(log.getDescription());
+        activity.setTimestamp(log.getTimestamp().toString());
+        return activity;
+    }
+
+    private UserManagementDTO mapUserToDTO(User user) {
+        UserManagementDTO dto = new UserManagementDTO();
+        dto.setId(user.getId());
+        dto.setName(user.getName());
+        dto.setEmail(user.getEmail());
+        dto.setRole(user.getRole().toString());
+        dto.setEnabled(user.isEnabled());
+        dto.setEmailVerified(user.isEmailVerified());
+        dto.setLastLogin(user.getLastLoginAt());
+        dto.setCreatedAt(user.getCreatedAt());
+        dto.setUpdatedAt(user.getUpdatedAt());
+        return dto;
     }
 }

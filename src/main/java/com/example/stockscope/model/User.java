@@ -7,8 +7,6 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.LocalDateTime;
-import java.util.HashSet;
-import java.util.Set;
 
 @Data
 @Entity
@@ -37,13 +35,6 @@ public class User {
     @Column(nullable = false)
     private boolean emailVerified = false;
 
-    private String profilePicture;
-
-    @Column(length = 500)
-    private String bio;
-
-    private String phoneNumber;
-
     @CreatedDate
     @Column(nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -54,9 +45,6 @@ public class User {
 
     @Column
     private LocalDateTime lastLoginAt;
-
-    @Version
-    private Long version;
 
     @PrePersist
     protected void onCreate() {

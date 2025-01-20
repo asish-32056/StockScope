@@ -19,128 +19,122 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.UUID;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
 
 @Service
 @Transactional
 public class AuthService {
     private static final Logger logger = LoggerFactory.getLogger(AuthService.class);
-
-    private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
-    private final JwtTokenProvider jwtTokenProvider;
-    private final ActivityLogService activityLogService;
-    private final HttpServletRequest request;
+    private static final Map<String, String> tokenBlacklist = new HashMap<>();
 
     @Autowired
-    public AuthService(
-            UserRepository userRepository,
-            PasswordEncoder passwordEncoder,
-            JwtTokenProvider jwtTokenProvider,
-            ActivityLogService activityLogService,
-            HttpServletRequest request) {
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.jwtTokenProvider = jwtTokenProvider;
-        this.activityLogService = activityLogService;
-        this.request = request;
-    }
+    private UserRepository userRepository;
+
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
+    @Autowired
+    private JwtTokenProvider tokenProvider;
+
+    @Autowired
+    private ActivityLogService activityLogService;
+
+    @Autowired
+    private HttpServletRequest request;
 
     public AuthResponse login(LoginRequest loginRequest) {
-        User user = userRepository.findByEmail(loginRequest.getEmail().toLowerCase())
-                .orElseThrow(() -> new AuthenticationException("Invalid email or password"));
+        logger.info("Processing login request for user: {}", loginRequest.getEmail());
 
-        if (!passwordEncoder.matches(loginRequest.getPassword(), user.getPassword())) {
-            logFailedLoginAttempt(user.getId());
-            throw new AuthenticationException("Invalid email or password");
-        }
+        User user = userRepository.findByEmail(loginRequest.getEmail())
+                .orElseThrow(() -> new AuthenticationException("Invalid email or password"));
 
         if (!user.isEnabled()) {
             throw new AuthenticationException("Account is disabled");
         }
 
-        user.setLastLoginAt(LocalDateTime.now());
-        user = userRepository.save(user);
+        if (!passwordEncoder.matches(loginRequest.getPassword(), user.getPassword())) {
+            throw new AuthenticationException("Invalid email or password");
+        }
 
-        logSuccessfulLogin(user.getId());
-        String token = jwtTokenProvider.generateToken(user);
+        user.setLastLoginAt(LocalDateTime.now());
+        userRepository.save(user);
+
+        String token = tokenProvider.generateToken(user);
+
+        activityLogService.logActivity(
+                user.getId(),
+                ActivityLog.ActivityType.LOGIN,
+                "User logged in successfully",
+                getClientInfo());
 
         return new AuthResponse(token, user);
     }
 
     public AuthResponse signup(SignupRequest signupRequest) {
-        validateSignupRequest(signupRequest);
+        logger.info("Processing signup request for user: {}", signupRequest.getEmail());
+
+        if (userRepository.existsByEmail(signupRequest.getEmail())) {
+            throw new ValidationException("Email is already registered");
+        }
 
         User user = new User();
-        user.setId(UUID.randomUUID().toString());
-        user.setName(signupRequest.getName().trim());
-        user.setEmail(signupRequest.getEmail().toLowerCase());
+        user.setName(signupRequest.getName());
+        user.setEmail(signupRequest.getEmail());
         user.setPassword(passwordEncoder.encode(signupRequest.getPassword()));
         user.setRole(Role.USER);
         user.setEnabled(true);
         user.setEmailVerified(false);
         user.setCreatedAt(LocalDateTime.now());
 
-        try {
-            user = userRepository.save(user);
-            logAccountCreation(user.getId());
-        } catch (Exception e) {
-            logger.error("Error creating user account", e);
-            throw new ValidationException("Error creating user account");
-        }
+        user = userRepository.save(user);
+        String token = tokenProvider.generateToken(user);
 
-        String token = jwtTokenProvider.generateToken(user);
+        activityLogService.logActivity(
+                user.getId(),
+                ActivityLog.ActivityType.ACCOUNT_CREATION,
+                "New account created",
+                getClientInfo());
+
         return new AuthResponse(token, user);
     }
 
     public void logout(String token) {
-        if (token != null && jwtTokenProvider.validateToken(token)) {
-            String userId = jwtTokenProvider.getUserIdFromToken(token);
-            logLogout(userId);
+        if (token != null) {
+            String userId = tokenProvider.getUserIdFromToken(token);
+            tokenBlacklist.put(token, LocalDateTime.now().toString());
+
+            activityLogService.logActivity(
+                    userId,
+                    ActivityLog.ActivityType.LOGOUT,
+                    "User logged out",
+                    getClientInfo());
         }
     }
 
-    private void validateSignupRequest(SignupRequest request) {
-        if (userRepository.existsByEmail(request.getEmail().toLowerCase())) {
-            throw new ValidationException("Email already registered");
+    public AuthResponse refreshToken(String refreshToken) {
+        if (refreshToken == null || tokenBlacklist.containsKey(refreshToken)) {
+            throw new AuthenticationException("Invalid or expired refresh token");
         }
-        // Add additional validations as needed
-    }
 
-    private void logSuccessfulLogin(String userId) {
+        String userId = tokenProvider.getUserIdFromToken(refreshToken);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new AuthenticationException("User not found"));
+
+        if (!user.isEnabled()) {
+            throw new AuthenticationException("Account is disabled");
+        }
+
+        String newToken = tokenProvider.generateToken(user);
+
         activityLogService.logActivity(
                 userId,
-                ActivityLog.ActivityType.LOGIN,
-                "Successful login",
-                getClientInfo()
-        );
-    }
+                ActivityLog.ActivityType.TOKEN_REFRESH,
+                "Token refreshed",
+                getClientInfo());
 
-    private void logFailedLoginAttempt(String userId) {
-        activityLogService.logActivity(
-                userId,
-                ActivityLog.ActivityType.LOGIN,
-                "Failed login attempt",
-                getClientInfo()
-        );
-    }
-
-    private void logLogout(String userId) {
-        activityLogService.logActivity(
-                userId,
-                ActivityLog.ActivityType.LOGOUT,
-                "User logged out",
-                getClientInfo()
-        );
-    }
-
-    private void logAccountCreation(String userId) {
-        activityLogService.logActivity(
-                userId,
-                ActivityLog.ActivityType.ACCOUNT_CREATION,
-                "New account created",
-                getClientInfo()
-        );
+        return new AuthResponse(newToken, user);
     }
 
     private String getClientInfo() {
