@@ -42,7 +42,8 @@ public class ActivityLog {
     public enum ActivityType {
         LOGIN, LOGOUT, PROFILE_UPDATE, PASSWORD_CHANGE,
         ACCOUNT_CREATION, ACCOUNT_DELETION, SETTINGS_UPDATE,
-        ADMIN_ACTION, USER_MANAGEMENT, SYSTEM_UPDATE
+        ADMIN_ACTION, USER_MANAGEMENT, SYSTEM_UPDATE,
+        TOKEN_REFRESH
     }
 
     public String getAdditionalInfo() {
@@ -51,5 +52,47 @@ public class ActivityLog {
 
     public void setAdditionalInfo(String additionalInfo) {
         this.additionalInfo = additionalInfo;
+    }
+
+    // Getters
+    public String getId() {
+        return id;
+    }
+
+    public String getUserId() {
+        return userId;
+    }
+
+    public ActivityType getActivityType() {
+        return activityType;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    // Setters
+    public void setId(String id) {
+        this.id = id;
+    }
+
+    public void setUserId(String userId) {
+        this.userId = userId;
+    }
+
+    public void setActivityType(ActivityType activityType) {
+        this.activityType = activityType;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    public void setTimestamp(LocalDateTime timestamp) {
+        this.timestamp = timestamp;
     }
 }
