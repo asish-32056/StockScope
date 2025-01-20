@@ -8,6 +8,8 @@ import java.lang.management.OperatingSystemMXBean;
 import java.util.HashMap;
 import java.util.Map;
 
+import com.example.stockscope.dto.admin.AdminDashboardStats.SystemStats;
+
 @Service
 public class AdminMetricsService {
 
@@ -55,5 +57,10 @@ public class AdminMetricsService {
         status.put("status", isSystemHealthy() ? "HEALTHY" : "DEGRADED");
         status.put("uptime", String.valueOf(ManagementFactory.getRuntimeMXBean().getUptime()));
         return status;
+    }
+
+    public SystemStats getSystemStats() {
+        // Implementation of getSystemStats method
+        return null; // Placeholder return, actual implementation needed
     }
 }

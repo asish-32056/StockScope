@@ -63,7 +63,16 @@ public class UserManagementDTO {
     }
 
     public String getStatus() {
-        return status;
+        if (!enabled) {
+            return "DISABLED";
+        }
+        if (!emailVerified) {
+            return "UNVERIFIED";
+        }
+        if (lastLogin == null) {
+            return "NEVER_LOGGED_IN";
+        }
+        return "ACTIVE";
     }
 
     public long getActivityCount() {
@@ -121,19 +130,5 @@ public class UserManagementDTO {
 
     public void setActivityCount(long activityCount) {
         this.activityCount = activityCount;
-    }
-
-    // Helper method to get user status
-    public String getStatus() {
-        if (!enabled) {
-            return "DISABLED";
-        }
-        if (!emailVerified) {
-            return "UNVERIFIED";
-        }
-        if (lastLogin == null) {
-            return "NEVER_LOGGED_IN";
-        }
-        return "ACTIVE";
     }
 }

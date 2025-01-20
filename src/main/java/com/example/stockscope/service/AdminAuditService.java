@@ -11,6 +11,8 @@ import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import com.example.stockscope.model.User;
+
 @Service
 @Transactional
 public class AdminAuditService {
@@ -68,5 +70,13 @@ public class AdminAuditService {
             return xForwardedFor.split(",")[0].trim();
         }
         return request.getRemoteAddr();
+    }
+
+    public void logUserUpdate(String userId, User user) {
+        // Implementation needed
+    }
+
+    public void logPasswordReset(String userId) {
+        // Implementation needed
     }
 }
